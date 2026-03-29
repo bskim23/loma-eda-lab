@@ -12,7 +12,6 @@ from src.metrics import (
     ranking_table_range,
     sku_detail_table,
     format_pct,
-    top_rows_for_focus,
 )
 from src.charts import (
     monthly_sales_chart,
@@ -22,13 +21,7 @@ from src.charts import (
     sku_contribution_chart,
     time_series_chart,
 )
-from src.query_parser import parse_question_locally
-from src.gemini_client import (
-    is_gemini_available,
-    parse_question_with_gemini,
-    summarize_with_gemini,
-)
-from src.narrative import build_summary_context, template_summary
+from src.insights import external_insights, internal_insights, can_generate_insights
 
 st.set_page_config(page_title="LOMA EDA", layout="wide")
 
@@ -77,6 +70,67 @@ def normalize_filter_state(
         st.session_state["selected_period"] = default_period
 
 
+def sign_color(val):
+    """부호에 따라 색상 반환: 양수 파랑, 음수 빨강, 그 외 검정."""
+    try:
+        if val is None or (isinstance(val, float) and val != val):
+            return "color: black"
+        if isinstance(val, str):
+            return "color: black"
+        if val < 0:
+            return "color: red"
+        if val > 0:
+            return "color: blue"
+    except (TypeError, ValueError):
+        pass
+    return "color: black"
+
+
+def fmt_signed_amount(value) -> str:
+    """부호 포함 금액 포맷."""
+    if value is None:
+        return "-"
+    try:
+        if value != value:
+            return "-"
+    except Exception:
+        return "-"
+    prefix = "+" if float(value) > 0 else ""
+    abs_value = abs(float(value))
+    if abs_value >= 100:
+        eok = float(value) / 100
+        if abs(eok) >= 10:
+            return f"{prefix}{eok:,.0f}억원"
+        return f"{prefix}{eok:,.1f}억원"
+    return f"{prefix}{float(value):,.0f}백만원"
+
+
+def fmt_signed_pct(value) -> str:
+    """부호 포함 퍼센트 포맷."""
+    if value is None:
+        return "-"
+    try:
+        if value != value:
+            return "-"
+    except Exception:
+        return "-"
+    prefix = "+" if float(value) > 0 else ""
+    return f"{prefix}{float(value):,.1f}%"
+
+
+def fmt_signed_pp(value) -> str:
+    """부호 포함 %p 포맷."""
+    if value is None:
+        return "-"
+    try:
+        if value != value:
+            return "-"
+    except Exception:
+        return "-"
+    prefix = "+" if float(value) > 0 else ""
+    return f"{prefix}{float(value):,.1f}%p"
+
+
 def format_amount(value) -> str:
     if value is None:
         return "-"
@@ -96,91 +150,6 @@ def format_amount(value) -> str:
 
     return f"{float(value):,.0f}백만원"
 
-
-def build_precise_facts(kpis: dict, selected_period: str) -> list[str]:
-    facts = [
-        f"현재 매출 ({selected_period}): {format_amount(kpis.get('current_sales'))}",
-        f"전년 동기 대비: {format_pct(kpis.get('yoy_growth'))}",
-        f"전월 대비: {format_pct(kpis.get('mom_growth'))}",
-        f"YTD 성장률: {format_pct(kpis.get('ytd_growth'))}",
-        f"시장 점유율 ({selected_period}): {format_pct(kpis.get('share'))}",
-        f"전년동기 대비 기여액: {format_amount(kpis.get('contribution'))}",
-    ]
-    return facts
-
-
-def extract_top3_summary_lines(summary_text: str) -> list[str]:
-    if not summary_text:
-        return ["요약 결과가 없습니다."]
-
-    raw_lines = [line.strip() for line in summary_text.splitlines() if line.strip()]
-    cleaned = []
-
-    skip_exact = {
-        "핵심 요약",
-        "AI 핵심 요약",
-        "요약",
-    }
-
-    for line in raw_lines:
-        stripped = line.strip().lstrip("-•1234567890. ").strip()
-        if not stripped:
-            continue
-        if stripped in skip_exact:
-            continue
-        cleaned.append(stripped)
-
-    if not cleaned:
-        return ["요약 결과가 없습니다."]
-
-    return cleaned[:3]
-
-
-def assess_question_feasibility(question: str) -> dict:
-    q = (question or "").strip()
-
-    unsupported_keywords = [
-        "소비자", "심리", "인지", "광고효과", "캠페인 효과", "브랜드 이미지",
-        "전망", "예측", "의도", "정성", "설문", "리뷰"
-    ]
-    partial_keywords = [
-        "이유", "원인", "왜", "배경", "문제점", "의미", "해석"
-    ]
-
-    if any(k in q for k in unsupported_keywords):
-        return {
-            "status": "unsupported",
-            "message": "이 질문은 현재 업로드된 판매 데이터만으로 직접 답하기 어렵습니다.",
-            "possible_scope": [
-                "매출 규모 및 증감",
-                "제조사/브랜드/타입/경로별 비교",
-                "성장·감소 기여 항목",
-                "시계열 흐름 확인",
-            ],
-            "suggestions": [
-                "어떤 브랜드가 감소를 주도했는가",
-                "어느 경로에서 약세가 컸는가",
-                "전년 대비 하락폭이 큰 SKU는 무엇인가",
-            ],
-        }
-
-    if any(k in q for k in partial_keywords):
-        return {
-            "status": "partial",
-            "message": "이 질문은 데이터상 징후까지는 볼 수 있지만, 원인을 확정적으로 판단하기는 어렵습니다.",
-            "possible_scope": [
-                "감소/성장 기여 항목",
-                "경로별 약세/강세 구간",
-                "시계열 변화 확인",
-            ],
-            "suggestions": [
-                "감소를 주도한 브랜드는 무엇인가",
-                "어느 경로에서 하락폭이 컸는가",
-                "전년 대비 약세 SKU는 무엇인가",
-            ],
-        }
-
-    return {"status": "supported"}
 
 
 st.title("Exploratory Data Analysis for LOMA Experiments (1 Hr. Version)")
@@ -224,13 +193,6 @@ default_period = (
 init_filter_state(default_period)
 
 all_manufacturers, all_brands, all_types, all_markets = get_filter_options(long_df)
-
-try:
-    secrets_obj = st.secrets
-except Exception:
-    secrets_obj = None
-
-gemini_ready = is_gemini_available(secrets_obj)
 
 brand_seed_options = get_filter_options(
     long_df,
@@ -469,9 +431,9 @@ with tab1:
         st.warning(
             f"⚠️ 전년 비교 데이터가 부족합니다 "
             f"(현재 {len(selected_range)}개 기간 vs 비교 {len(yoy_range)}개 기간). "
-            f"성장률 · 기여액 · 구성비 변동은 정확하지 않을 수 있습니다."
+            f"성장률 · 증감액 · 구성비 변동은 정확하지 않을 수 있습니다."
             if 'selected_range' in dir() and yoy_range
-            else "⚠️ 전년 비교 데이터가 없어 성장률 · 기여액 · 구성비 변동을 산출할 수 없습니다."
+            else "⚠️ 전년 비교 데이터가 없어 성장률 · 증감액 · 구성비 변동을 산출할 수 없습니다."
         )
 
     display_rank_df = rank_df.copy()
@@ -503,29 +465,49 @@ with tab1:
         "current_sales": "현재 매출",
         "base_sales": "비교 기준 매출",
         "YoY": "성장률",
-        "Contribution": "기여액",
+        "Contribution": "증감액",
         "Share": share_col_name,
         "Share_chg": share_chg_col_name,
     }
     display_rank_df = display_rank_df.drop(columns=["base_Share"], errors="ignore")
     display_rank_df = display_rank_df.rename(columns=rename_map)
 
+    # 퍼센트 컬럼 × 100
     for col in ["성장률", share_col_name, share_chg_col_name]:
         if col in display_rank_df.columns:
             display_rank_df[col] = display_rank_df[col] * 100
 
+    # 부호 있는 컬럼 포맷
+    signed_cols = ["성장률", "증감액", share_chg_col_name]
+
+    display_rank_df["현재 매출"] = display_rank_df["현재 매출"].map(format_amount)
+    display_rank_df["비교 기준 매출"] = display_rank_df["비교 기준 매출"].map(format_amount)
+    if share_col_name in display_rank_df.columns:
+        display_rank_df[share_col_name] = display_rank_df[share_col_name].map(
+            lambda v: fmt_signed_pct(v) if v == v and v is not None else "-"
+        )
+    display_rank_df["성장률"] = display_rank_df["성장률"].map(fmt_signed_pct)
+    display_rank_df["증감액"] = display_rank_df["증감액"].map(fmt_signed_amount)
+    display_rank_df[share_chg_col_name] = display_rank_df[share_chg_col_name].map(fmt_signed_pp)
+
+    # 부호 색상 적용
+    def apply_sign_color(val):
+        if not isinstance(val, str) or val == "-":
+            return "color: black"
+        if val.startswith("+"):
+            return "color: blue"
+        if val.startswith("-") or val.startswith("−"):
+            return "color: red"
+        return "color: black"
+
+    styled_rank_df = display_rank_df.style.applymap(
+        apply_sign_color, subset=signed_cols
+    )
+
     st.dataframe(
-        display_rank_df,
+        styled_rank_df,
         use_container_width=True,
         hide_index=True,
-        column_config={
-            "현재 매출": st.column_config.NumberColumn("현재 매출", format="%.0f 백만원"),
-            "비교 기준 매출": st.column_config.NumberColumn("비교 기준 매출", format="%.0f 백만원"),
-            "성장률": st.column_config.NumberColumn("성장률 (%)", format="%.1f%%"),
-            "기여액": st.column_config.NumberColumn("기여액", format="%.0f 백만원"),
-            share_col_name: st.column_config.NumberColumn(share_label_text, format="%.1f%%"),
-            share_chg_col_name: st.column_config.NumberColumn(share_chg_label_text, format="%+.1f"),
-        },
     )
 
 with tab2:
@@ -598,154 +580,54 @@ with tab4:
 st.markdown("---")
 
 with st.container(border=True):
-    st.subheader("한 걸음 더, 자연어 분석 v3")
+    st.subheader("자동 인사이트")
 
-    if gemini_ready:
-        st.caption("Gemini API가 연결되어 있습니다. 질문 해석과 요약에 Gemini를 사용합니다.")
+    if not can_generate_insights(selected_manufacturer, selected_brand):
+        st.info("제조사 또는 브랜드를 선택하면 자동 인사이트를 확인할 수 있습니다.")
     else:
-        st.caption(
-            "Gemini API 키가 없어 로컬 규칙 기반 해석으로 동작합니다. "
-            "나중에 Streamlit Secrets 또는 환경변수에 GEMINI_API_KEY를 넣으면 Gemini를 사용할 수 있습니다."
-        )
+        me_label_parts = []
+        if selected_manufacturer != "전체":
+            me_label_parts.append(selected_manufacturer)
+        if selected_brand != "전체":
+            me_label_parts.append(selected_brand)
+        if selected_typea != "전체":
+            me_label_parts.append(selected_typea)
+        if selected_market != "전체":
+            me_label_parts.append(selected_market)
+        me_label = " > ".join(me_label_parts)
 
-    question = st.text_area(
-        "질문 입력",
-        value=st.session_state.get("question_text", ""),
-        placeholder="예: 롯데웰푸드 관점에서 빼빼로가 어느 경로에서 강한지 분석해줘",
-        height=100,
-        key="question_text",
-    )
+        market_df = filter_data(long_df, typea=selected_typea, market=selected_market)
 
-    feasibility = assess_question_feasibility(question)
+        ext_col, int_col = st.columns(2)
 
-    if question.strip():
-        if feasibility["status"] == "unsupported":
-            st.warning(feasibility["message"])
-            st.markdown("**현재 가능한 분석 범위**")
-            for item in feasibility["possible_scope"]:
+        with ext_col:
+            st.markdown(f"#### External — 시장 내 위치")
+            st.caption(f"{me_label} vs 시장 전체 ({selected_period})")
+            ext_items = external_insights(
+                me_df=filtered_df,
+                market_df=market_df,
+                long_df=long_df,
+                selected_period=selected_period,
+                manufacturer=selected_manufacturer,
+                brand=selected_brand,
+            )
+            for item in ext_items:
                 st.markdown(f"- {item}")
 
-            st.markdown("**이렇게 바꾸면 분석 가능합니다**")
-            for item in feasibility["suggestions"]:
+        with int_col:
+            st.markdown(f"#### Internal — 내부 구조 분석")
+            st.caption(f"{me_label} 내부 ({selected_period})")
+            int_items = internal_insights(
+                me_df=filtered_df,
+                long_df=long_df,
+                selected_period=selected_period,
+                manufacturer=selected_manufacturer,
+                brand=selected_brand,
+                typea=selected_typea,
+                market=selected_market,
+            )
+            for item in int_items:
                 st.markdown(f"- {item}")
-
-        elif feasibility["status"] == "partial":
-            st.info(feasibility["message"])
-            st.markdown("**현재 데이터 기준으로는 아래 범위까지 가능합니다**")
-            for item in feasibility["possible_scope"]:
-                st.markdown(f"- {item}")
-
-    action_cols = st.columns([1, 1, 1, 5])
-    analyze_clicked = action_cols[0].button("질문 분석", use_container_width=True)
-    apply_clicked = action_cols[1].button("필터에 반영", use_container_width=True)
-    reset_clicked = action_cols[2].button("초기화", use_container_width=True)
-
-    if reset_clicked:
-        st.session_state.pop("parsed_query", None)
-        st.session_state.pop("ai_summary_text", None)
-        st.session_state["selected_manufacturer"] = "전체"
-        st.session_state["selected_brand"] = "전체"
-        st.session_state["selected_typea"] = "전체"
-        st.session_state["selected_market"] = "전체"
-        st.session_state["selected_period"] = default_period
-        st.rerun()
-
-    if analyze_clicked and question.strip() and feasibility["status"] != "unsupported":
-        try:
-            if gemini_ready:
-                parsed_query = parse_question_with_gemini(
-                    question=question,
-                    category=transform_meta.get("category", "-"),
-                    manufacturers=all_manufacturers,
-                    brands=all_brands,
-                    types=all_types,
-                    markets=all_markets,
-                    periods=period_options,
-                    default_period=default_period,
-                    streamlit_secrets=secrets_obj,
-                )
-            else:
-                parsed_query = parse_question_locally(
-                    question=question,
-                    manufacturer_options=all_manufacturers,
-                    brand_options=all_brands,
-                    type_options=all_types,
-                    market_options=all_markets,
-                    period_options=period_options,
-                    default_period=default_period,
-                    category=transform_meta.get("category", "-"),
-                )
-
-            st.session_state["parsed_query"] = parsed_query
-
-        except Exception as e:
-            st.error(f"질문 해석 중 오류가 발생했습니다: {e}")
-
-    parsed_query = st.session_state.get("parsed_query")
-
-    if apply_clicked and parsed_query:
-        st.session_state["selected_manufacturer"] = parsed_query.get("manufacturer", "전체")
-        st.session_state["selected_brand"] = parsed_query.get("brand", "전체")
-        st.session_state["selected_typea"] = parsed_query.get("typea", "전체")
-        st.session_state["selected_market"] = parsed_query.get("market", "전체")
-        st.session_state["selected_period"] = parsed_query.get("period", default_period)
-        st.rerun()
-
-    if parsed_query:
-        st.markdown("**질문 해석 결과**")
-        st.json(parsed_query)
-
-        focus_rows = top_rows_for_focus(
-            filtered_df,
-            parsed_query.get("focus_dimension", "brand"),
-            selected_period,
-            top_n=5,
-        )
-        summary_context = build_summary_context(
-            kpis=kpis,
-            top_rows=focus_rows,
-            focus_dimension=parsed_query.get("focus_dimension", "brand"),
-            selected_period=selected_period,
-            category=transform_meta.get("category", "-"),
-        )
-
-        gemini_error_message = None
-        gemini_error_detail = None
-
-        if gemini_ready:
-            try:
-                summary_text = summarize_with_gemini(
-                    question=parsed_query.get("question", question),
-                    structured_query=parsed_query,
-                    computed_context=summary_context,
-                    streamlit_secrets=secrets_obj,
-                )
-            except Exception as e:
-                gemini_error_detail = str(e)
-
-                if "429" in gemini_error_detail or "RESOURCE_EXHAUSTED" in gemini_error_detail:
-                    gemini_error_message = "Gemini 사용량 한도에 도달해 템플릿 요약으로 전환했습니다. 잠시 후 다시 시도해 주세요."
-                else:
-                    gemini_error_message = "Gemini 요약 생성에 실패해 템플릿 요약으로 전환했습니다."
-
-                summary_text = template_summary(parsed_query, kpis, focus_rows, transform_meta.get("category", "-"))
-        else:
-            summary_text = template_summary(parsed_query, kpis, focus_rows, transform_meta.get("category", "-"))
-
-        if gemini_error_message:
-            st.info(gemini_error_message)
-            with st.expander("상세 오류 보기"):
-                st.code(gemini_error_detail)
-
-        st.markdown("### AI 핵심 요약")
-        summary_lines = extract_top3_summary_lines(summary_text)
-        for line in summary_lines:
-            st.markdown(f"- {line}")
-
-        st.markdown("### 정밀 팩트")
-        precise_facts = build_precise_facts(kpis, selected_period)
-        for fact in precise_facts:
-            st.markdown(f"- {fact}")
 
 st.markdown("---")
 st.markdown(
