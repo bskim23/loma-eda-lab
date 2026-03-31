@@ -583,7 +583,12 @@ with st.container(border=True):
     st.subheader("자동 인사이트")
 
     if not can_generate_insights(selected_manufacturer, selected_brand):
-        st.info("제조사 또는 브랜드를 선택하면 자동 인사이트를 확인할 수 있습니다.")
+        st.info(
+            "📌 상단의 제조사 · 브랜드 필터를 선택하면 아래 인사이트가 자동으로 생성됩니다 ↑\n\n"
+            "- **External**: 시장 대비 성장률, 점유율 변동, 채널별 강약점\n"
+            "- **Internal**: 성장/하락 주도 항목, 포트폴리오 구성 변화, MoM 모멘텀\n\n"
+            "타입 · 채널 필터를 함께 설정하면 더 세밀한 분석이 가능합니다."
+        )
     else:
         me_label_parts = []
         if selected_manufacturer != "전체":
