@@ -349,7 +349,7 @@ row4_col2.empty()
 tab1, tab2, tab3, tab4 = st.tabs(["랭킹", "SKU 상세", "정규화 데이터", "원본 미리보기"])
 
 with tab1:
-    month_periods = get_month_periods_sorted(filtered_df)
+    month_periods = get_month_periods_sorted(long_df)
 
     rank_opt_cols = st.columns([1, 1, 1, 1, 1])
 
@@ -372,17 +372,17 @@ with tab1:
     if month_periods:
         if rank_basis == "최근 1개월":
             selected_range = [month_periods[-1]]
-            yoy_range = get_yoy_periods_for_range(filtered_df, selected_range)
+            yoy_range = get_yoy_periods_for_range(long_df, selected_range)
             rank_opt_cols[4].caption(f"기간: {month_periods[-1]}")
 
         elif rank_basis == "올해 누적":
             selected_range = ["YTD"]
-            yoy_range = ["YTD YA"] if "YTD YA" in filtered_df["period_display"].values else []
+            yoy_range = ["YTD YA"] if "YTD YA" in long_df["period_display"].values else []
             rank_opt_cols[4].caption("기간: YTD")
 
         elif rank_basis == "최근 12개월":
             selected_range = month_periods[-12:] if len(month_periods) >= 12 else month_periods
-            yoy_range = get_yoy_periods_for_range(filtered_df, selected_range)
+            yoy_range = get_yoy_periods_for_range(long_df, selected_range)
             rank_opt_cols[4].caption(f"기간: {selected_range[0]} ~ {selected_range[-1]} ({len(selected_range)}개월)")
 
         else:
@@ -402,7 +402,7 @@ with tab1:
             )
             end_idx = month_periods.index(rank_end)
             selected_range = month_periods[start_idx : end_idx + 1]
-            yoy_range = get_yoy_periods_for_range(filtered_df, selected_range)
+            yoy_range = get_yoy_periods_for_range(long_df, selected_range)
             rank_opt_cols[4].caption(f"선택: {len(selected_range)}개월")
 
         # 기간 매칭 검증
@@ -412,7 +412,7 @@ with tab1:
             if rank_basis != "올해 누적" and len(yoy_range) < len(selected_range):
                 period_mismatch = True
         elif rank_basis == "올해 누적":
-            if "YTD YA" not in filtered_df["period_display"].values:
+            if "YTD YA" not in long_df["period_display"].values:
                 period_mismatch = True
                 rank_opt_cols[4].caption("비교: 전년 데이터 없음")
             else:
@@ -421,9 +421,9 @@ with tab1:
             period_mismatch = True
             rank_opt_cols[4].caption("비교: 전년 데이터 없음")
 
-        rank_df = ranking_table_range(filtered_df, rank_dimension, selected_range, yoy_range)
+        rank_df = ranking_table_range(long_df, rank_dimension, selected_range, yoy_range)
     else:
-        rank_df = ranking_table(filtered_df, rank_dimension, selected_period)
+        rank_df = ranking_table(long_df, rank_dimension, selected_period)
         period_mismatch = True
 
     # 기간 불일치 경고
