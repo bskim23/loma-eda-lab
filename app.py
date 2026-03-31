@@ -478,19 +478,21 @@ with tab1:
             display_rank_df[col] = display_rank_df[col] * 100
 
     # 부호 있는 컬럼 포맷
-    signed_cols = ["성장률", "증감액", share_chg_col_name]
-
     display_rank_df["현재 매출"] = display_rank_df["현재 매출"].map(format_amount)
     display_rank_df["비교 기준 매출"] = display_rank_df["비교 기준 매출"].map(format_amount)
     if share_col_name in display_rank_df.columns:
         display_rank_df[share_col_name] = display_rank_df[share_col_name].map(
-            lambda v: fmt_signed_pct(v) if v == v and v is not None else "-"
+            lambda v: f"{v:,.1f}%" if v == v and v is not None else "-"
         )
     display_rank_df["성장률"] = display_rank_df["성장률"].map(fmt_signed_pct)
-    display_rank_df["증감액"] = display_rank_df["증감액"].map(fmt_signed_amount)
-    display_rank_df[share_chg_col_name] = display_rank_df[share_chg_col_name].map(fmt_signed_pp)
+    if "증감액" in display_rank_df.columns:
+        display_rank_df["증감액"] = display_rank_df["증감액"].map(fmt_signed_amount)
+    if share_chg_col_name in display_rank_df.columns:
+        display_rank_df[share_chg_col_name] = display_rank_df[share_chg_col_name].map(fmt_signed_pp)
 
-    # 부호 색상 적용
+    # 부호 색상 적용 (실제 존재하는 컬럼만 subset으로 제한)
+    signed_cols = [col for col in ["성장률", "증감액", share_chg_col_name] if col in display_rank_df.columns]
+
     def apply_sign_color(val):
         if not isinstance(val, str) or val == "-":
             return "color: black"
@@ -513,6 +515,15 @@ with tab1:
 with tab2:
     sku_df = sku_detail_table(filtered_df, selected_period, top_n=200)
     display_sku_df = sku_df.copy()
+
+    sku_filter_columns = {"manufacturer": "제조사", "brand": "브랜드", "typea": "타입", "market": "채널"}
+    sku_filter_cols = st.columns(len(sku_filter_columns))
+    for i, (col_key, col_label) in enumerate(sku_filter_columns.items()):
+        if col_key in display_sku_df.columns:
+            unique_vals = sorted(display_sku_df[col_key].dropna().astype(str).unique().tolist())
+            selected = sku_filter_cols[i].multiselect(col_label, options=unique_vals, key=f"sku_filter_{col_key}")
+            if selected:
+                display_sku_df = display_sku_df[display_sku_df[col_key].astype(str).isin(selected)]
 
     rename_map = {
         "item_code": "ITEM CODE",
