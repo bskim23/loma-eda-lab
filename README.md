@@ -1,4 +1,4 @@
-# Snack Market Dashboard v3
+# 닐슨 월간 데이터 분석 v3
 
 Streamlit 기반 월간 FMCG 패널 데이터 대시보드입니다.
 
