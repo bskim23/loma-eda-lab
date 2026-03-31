@@ -43,6 +43,7 @@ def monthly_sales_chart(df: pd.DataFrame):
         text="label_text",
         title="월별 매출 비교",
         labels={"period_display": "기간", "sales_value_eok": "매출 (억원)"},
+        color_discrete_sequence=["#1d4e89"],
     )
     fig.update_traces(textposition="outside")
     fig.update_layout(height=420, yaxis_tickformat=",")
@@ -69,6 +70,7 @@ def ytd_sales_chart(df: pd.DataFrame):
         text="label_text",
         title="YTD 매출 비교",
         labels={"period_display": "기간", "sales_value_eok": "매출 (억원)"},
+        color_discrete_sequence=["#2e75b6"],
     )
     fig.update_traces(textposition="outside")
     fig.update_layout(height=420, yaxis_tickformat=",")
@@ -96,6 +98,7 @@ def top_dimension_chart(df: pd.DataFrame, dimension: str, selected_period: str, 
         text="label_text",
         title=mapping.get(dimension, dimension),
         labels={dimension: dimension.title(), "sales_value_eok": "매출 (억원)"},
+        color_discrete_sequence=["#4472c4"],
     )
     fig.update_traces(textposition="outside")
     fig.update_layout(height=420, xaxis_tickangle=-35, yaxis_tickformat=",")
@@ -113,6 +116,7 @@ def type_growth_chart(df: pd.DataFrame, selected_period: str):
         y="growth_rate",
         title="타입 성장률",
         labels={"typea": "Type", "growth_rate": "Growth Rate"},
+        color_discrete_sequence=["#0891b2"],
     )
     fig.update_layout(height=420, xaxis_tickangle=-35, yaxis_tickformat=".1%")
     return fig
@@ -134,6 +138,7 @@ def sku_contribution_chart(df: pd.DataFrame, selected_period: str, top_n: int = 
         text="label_text",
         title="Top SKU Contribution",
         labels={"item": "SKU", "contribution_eok": "Contribution (억원)"},
+        color_discrete_sequence=["#4da6d6"],
     )
     fig.update_traces(textposition="outside")
     fig.update_layout(height=520, yaxis={"categoryorder": "total ascending"}, xaxis_tickformat=",")
@@ -161,6 +166,7 @@ def time_series_chart(df: pd.DataFrame):
         text="label_text",
         title="월별 시계열 추이",
         labels={"period_end_date": "기간", "sales_value_eok": "매출 (억원)"},
+        color_discrete_sequence=["#60a5fa"],
     )
     fig.update_traces(textposition="top center")
     fig.update_layout(height=420, yaxis_tickformat=",")
