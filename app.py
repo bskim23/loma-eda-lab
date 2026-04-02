@@ -502,7 +502,7 @@ with tab1:
             return "color: red"
         return "color: black"
 
-    styled_rank_df = display_rank_df.style.ymap(
+    styled_rank_df = display_rank_df.style.map(
         apply_sign_color, subset=signed_cols
     )
 
